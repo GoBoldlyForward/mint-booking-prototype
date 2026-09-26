@@ -221,27 +221,25 @@
 
   screens.membership = () => {
     const m = state.member;
-    const card = (k, title, sub, body, badge) => `<div class="choice expand ${m.status === k ? 'selected' : ''}">${badge || ''}<div class="choice-head" data-m="${k}"><span class="t">${title}</span><span class="s">${sub}</span></div>${m.status === k && body ? `<div class="choice-body">${body}</div>` : ''}</div>`;
     let memberBody = '';
     if (m.stage === 'code') memberBody = `<p class="small" style="margin:0 0 8px;color:var(--ink-2)">We texted a code to the number on file for <b>${h(m.email)}</b>. Any four digits work here.</p><input class="input big" id="code" inputmode="numeric" maxlength="4" placeholder="••••" aria-label="Sign-in code">`;
     else if (m.stage === 'in') memberBody = `<div class="note" style="margin:0">Welcome back. Your <b>${m.tier === 'elite' ? 'Elite' : 'Maintenance'}</b> discount is applied and your monthly credit is waiting.</div>`;
     else memberBody = `<input class="input" id="m-email" value="${h(m.email)}" placeholder="Email or mobile on your account" aria-label="Member email or mobile"><button class="btn" id="m-send" type="button" style="margin-top:10px">Send sign-in code</button>`;
-    const joinBody = `<input class="input" id="n-email" type="email" value="${h(m.email)}" placeholder="you@example.com" aria-label="Email for your membership"><p class="small" style="margin:8px 0 0;color:var(--ink-2)">You pick a plan on the next screen. The $20 comes off today's clean.</p>`;
+    const perks = `<ul class="perks">
+          <li><b>$20 off</b> this clean, today</li>
+          <li><b>15% to 20% off</b> a full detail every membership year</li>
+          <li><b>$20 to $35 credit</b> every month toward washes or a second car</li>
+          <li><b>Priority booking</b> when the schedule is tight</li>
+        </ul>`;
+    const joinBody = `${perks}<input class="input" id="n-email" type="email" value="${h(m.email)}" placeholder="you@example.com" aria-label="Email for your membership"><p class="small" style="margin:8px 0 0;color:var(--ink-2)">You pick a plan on the next screen. The $20 comes off today's clean.</p>`;
+    const card = (k, title, sub, body, badge, cls = '') => `<div class="choice expand ${cls} ${m.status === k ? 'selected' : ''}">${badge || ''}<div class="choice-head" data-m="${k}"><span class="t">${title}</span><span class="s">${sub}</span></div>${(m.status === k || (k === 'new' && !m.status)) && body ? `<div class="choice-body">${m.status === k ? body : perks}</div>` : ''}</div>`;
     return {
       html: `${eyebrow()}<h1>Members save money.</h1><p class="lede">Sign in if you have a membership. If not, joining now takes $20 off this clean.</p>
         <div class="choices">
           ${card('declined', 'Not now', 'Continue as a guest')}
           ${card('member', "I'm already a member", 'Sign in to apply your discount and credits', memberBody)}
-          ${card('new', 'Join now', `From ${money(M.MEMBERSHIP_PRICE)} a month, cancel any time`, joinBody, '<span class="badge pop float">Save $20 today</span>')}
-        </div>
-        ${!m.status ? `<h2>What joining gets you</h2>
-        <ul class="perks">
-          <li><b>$20 off</b> this clean, today</li>
-          <li><b>15% to 20% off</b> a full detail every membership year</li>
-          <li><b>$20 to $35 credit</b> every month toward washes or a second car</li>
-          <li><b>Priority booking</b> when the schedule is tight</li>
-          <li>From ${money(M.MEMBERSHIP_PRICE)} a month, cancel any time</li>
-        </ul>` : ''}`,
+          ${card('new', 'Join now', `From ${money(M.MEMBERSHIP_PRICE)} a month, cancel any time`, joinBody, '<span class="badge pop float">Save $20 today</span>', 'gold')}
+        </div>`,
       after() {
         $$('[data-m]').forEach(b => b.addEventListener('click', () => { if (state.member.status === b.dataset.m) return; state.member = { status: b.dataset.m, tier: '', email: state.member.email, stage: '' }; save(); render(); const f = $('#m-email, #n-email'); if (f) f.focus(); }));
         const ne = $('#n-email'); if (ne) ne.addEventListener('input', () => { state.member.email = ne.value; save(); footer(); });

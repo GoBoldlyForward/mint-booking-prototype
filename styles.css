@@ -233,3 +233,9 @@ details ul { margin: 6px 0 0; padding-left: 18px; font-size: 13px; color: var(--
 .group.closed .chev { transform: rotate(0deg); }
 .group-body { padding-bottom: 6px; border-top: 1px solid var(--line); }
 .group.closed .group-body { display: none; }
+
+/* Highlighted join card, matched to the yellow pill */
+.choice.gold { background: #fffbea; border-color: #f2cf3a; }
+.choice.gold:hover { border-color: #e2bd1c; }
+.choice.gold.selected { border-color: #d9b400; background: #fff7d1; box-shadow: 0 0 0 3px rgba(240, 200, 40, .22); }
+.choice.gold .perks { margin: 0 0 12px; }
