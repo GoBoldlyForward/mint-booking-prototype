@@ -217,3 +217,19 @@ details ul { margin: 6px 0 0; padding-left: 18px; font-size: 13px; color: var(--
 .badge.float { position: absolute; top: -10px; left: 14px; font-size: 11px; padding: 2px 8px; }
 .perks { margin: 8px 0 0; padding-left: 18px; color: var(--ink-2); font-size: 14px; }
 .perks li { margin: 6px 0; }
+
+/* Expanding choice cards */
+.choice.expand { display: block; padding: 0; }
+.choice-head { display: grid; gap: 4px; padding: 14px 16px; cursor: pointer; }
+.choice-head .t { font-weight: 700; font-size: 16px; }
+.choice-head .s { color: var(--ink-2); font-size: 13px; }
+.choice-body { padding: 0 16px 16px; }
+/* Collapsible add-on groups */
+.group { padding: 0 16px; }
+.group-head { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; padding: 12px 0; cursor: pointer; }
+.group-head h3 { margin: 0; }
+.group-head .gb { margin: 2px 0 0; }
+.chev { font-size: 26px; line-height: 1; color: var(--ink-3); transform: rotate(90deg); transition: transform .15s; }
+.group.closed .chev { transform: rotate(0deg); }
+.group-body { padding-bottom: 6px; border-top: 1px solid var(--line); }
+.group.closed .group-body { display: none; }
