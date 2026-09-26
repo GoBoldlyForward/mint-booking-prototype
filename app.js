@@ -26,7 +26,7 @@
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
   const h = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const money = n => '$' + (Math.round(n * 100) / 100).toFixed(2);
+  const money = n => (n < 0 ? '−$' : '$') + (Math.abs(Math.round(n * 100) / 100)).toFixed(2);
   const uid = () => Math.random().toString(36).slice(2, 8);
   const vehicleName = v => [v.year, v.make, v.model].filter(Boolean).join(' ');
   const digits = s => (s || '').replace(/\D/g, '');
@@ -163,7 +163,7 @@
         if (!state.zip) z.focus();
         const nb = $('#notify-btn'); if (nb) nb.addEventListener('click', () => { state.notifyEmail = $('#notify').value; save(); nb.textContent = 'We will be in touch'; nb.disabled = true; });
       },
-      valid: st === 'served' || st === 'edge',
+      valid: () => st === 'served' || st === 'edge',
     };
   };
 
@@ -186,7 +186,7 @@
         $$('.day').forEach(b => b.addEventListener('click', () => { state.date = b.dataset.d; state.window = ''; save(); render(); }));
         $$('[data-w]').forEach(b => b.addEventListener('click', () => { state.window = b.dataset.w; save(); render(); }));
       },
-      valid: !!state.window,
+      valid: () => !!state.window,
     };
   };
 
@@ -207,7 +207,7 @@
           $$('[data-pop]').forEach(c => c.addEventListener('click', () => { const v = M.VEHICLE_INDEX.find(x => `${x.make} ${x.model}` === c.dataset.pop); pick(v); }));
         }
       },
-      valid: state.vehicles.length > 0,
+      valid: () => state.vehicles.length > 0,
     };
   };
 
@@ -248,7 +248,7 @@
         const py = $('#prepay-yes'); if (py) py.addEventListener('click', () => { state.prepay = true; save(); render(); });
         const pn = $('#prepay-no'); if (pn) pn.addEventListener('click', () => { state.prepay = false; save(); render(); });
       },
-      valid: (m.status === 'member' && m.stage === 'in') || (m.status === 'new' && !!m.tier && emailOk(m.email)) || (m.status === 'declined' && state.prepay !== null),
+      valid: () => (m.status === 'member' && m.stage === 'in') || (m.status === 'new' && !!m.tier && emailOk(m.email)) || (m.status === 'declined' && state.prepay !== null),
     };
   };
 
@@ -265,7 +265,7 @@
         ['name', 'email', 'phone'].forEach(k => { const el = $('#c-' + k); el.addEventListener('input', () => { state.contact[k] = el.value; save(); footer(); }); });
         if (!c.name) $('#c-name').focus();
       },
-      valid: c.name.trim().length > 1 && emailOk(c.email) && digits(c.phone).length >= 10,
+      valid: () => c.name.trim().length > 1 && emailOk(c.email) && digits(c.phone).length >= 10,
     };
   };
 
@@ -297,7 +297,7 @@
         bindTabs();
         $$('[data-pkg]').forEach(b => b.addEventListener('click', e => { if (e.target.closest('details')) return; targets().forEach(t => { state.pkg[t.id] = b.dataset.pkg; }); save(); render(); }));
       },
-      valid: state.vehicles.every(x => !!pkgFor(x)),
+      valid: () => state.vehicles.every(x => !!pkgFor(x)),
     };
   };
 
@@ -316,7 +316,7 @@
           save(); footer();
         }));
       },
-      valid: true,
+      valid: () => true,
     };
   };
 
@@ -333,7 +333,7 @@
         $$('[data-pop]').forEach(c => c.addEventListener('click', () => pick(M.VEHICLE_INDEX.find(x => `${x.make} ${x.model}` === c.dataset.pop))));
         $('#no-thanks').addEventListener('click', () => { state.anotherDeclined = true; save(); go('address'); });
       },
-      valid: false, hideFooter: true,
+      valid: () => false, hideFooter: true,
     };
   };
 
@@ -378,7 +378,7 @@
         const nt = $('#notes'); if (nt) nt.addEventListener('input', () => { state.address.notes = nt.value; save(); });
         $$('[data-type]').forEach(c => c.addEventListener('click', () => { state.address.type = c.dataset.type; save(); render(); }));
       },
-      valid: confirmed,
+      valid: () => confirmed,
     };
   };
 
@@ -397,8 +397,8 @@
         <div class="kv" style="margin-bottom:14px"><dt>When</dt><dd>${h(fmtDay(state.date))}, ${h(w ? w.label : '')}</dd><dt>Where</dt><dd>${h(state.address.line1)}${state.address.line2 ? ', ' + h(state.address.line2) : ''}, ${h(state.address.city)}</dd><dt>Cars</dt><dd>${state.vehicles.map(vehicleName).map(h).join(' · ')}</dd></div>
         ${summaryHtml(q)}
         <div class="choices">
-          <button type="button" class="btn dark wallet" id="apple"> Pay</button>
-          <button type="button" class="btn secondary wallet" id="gpay">G Pay</button>
+          <button type="button" class="btn dark wallet" id="apple">Apple Pay</button>
+          <button type="button" class="btn secondary wallet" id="gpay">Google Pay</button>
         </div>
         <p class="muted" style="text-align:center;margin:12px 0">or pay with a card</p>
         <label class="field"><span>Card number</span><input class="input" id="cc" inputmode="numeric" placeholder="4242 4242 4242 4242"></label>
@@ -414,7 +414,7 @@
         $('#c2').addEventListener('change', e => { state.payment.consentOffers = e.target.checked; save(); });
         ['cc', 'exp', 'cvc'].forEach(id => $('#' + id).addEventListener('input', footer));
       },
-      valid: true, payLabel: `Pay ${money(q.deposit)} deposit`,
+      valid: () => true, payLabel: `Pay ${money(q.deposit)} deposit`,
       pay() { const ok = digits($('#cc').value).length >= 12; if (!ok) { $('#cc').focus(); return; } state.payment.method = 'card'; state.bookingId = 'MINT-' + Math.random().toString(36).slice(2, 7).toUpperCase(); save(); go('done'); },
     };
   };
@@ -431,7 +431,7 @@
         $('#cal').addEventListener('click', e => { e.target.textContent = 'Added'; });
         $('#again').addEventListener('click', reset);
       },
-      valid: false, hideFooter: true,
+      valid: () => false, hideFooter: true,
     };
   };
 
@@ -444,7 +444,7 @@
     const step = current();
     const showTotal = ['services', 'addons', 'address', 'pay', 'membership', 'who'].includes(step) && q.total > 0;
     const label = view.payLabel || 'Continue';
-    el.innerHTML = `<div class="tot">${showTotal ? `Total<b>${money(q.total)}</b>` : `<span class="muted">Step ${STEPS.indexOf(step) + 1} of ${STEPS.length - 1}</span>`}</div><button class="btn" id="next" type="button" ${view.valid ? '' : 'disabled'}>${h(label)}</button>`;
+    el.innerHTML = `<div class="tot">${showTotal ? `Total<b>${money(q.total)}</b>` : `<span class="muted">Step ${STEPS.indexOf(step) + 1} of ${STEPS.length - 1}</span>`}</div><button class="btn" id="next" type="button" ${view.valid() ? '' : 'disabled'}>${h(label)}</button>`;
     $('#next').addEventListener('click', () => { if (view.pay) view.pay(); else next(); });
   }
   function render() {

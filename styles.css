@@ -108,7 +108,8 @@ h2 { font-size: 16px; margin: 22px 0 10px; }
 .choice.selected { border-color: var(--mint); background: var(--mint-tint); box-shadow: 0 0 0 3px rgba(31,168,113,.12); }
 .choice .t { font-weight: 700; font-size: 16px; }
 .choice .s { grid-column: 1; color: var(--ink-2); font-size: 13px; }
-.choice .p { grid-row: 1 / span 2; font-weight: 700; font-size: 16px; text-align: right; white-space: nowrap; }
+.choice > .t, .choice > .s, .choice > .badge, .choice > details { grid-column: 1; }
+.choice .p { grid-column: 2; grid-row: 1 / span 4; align-self: center; font-weight: 700; font-size: 16px; text-align: right; white-space: nowrap; }
 .choice .p small { display: block; font-weight: 500; font-size: 12px; color: var(--ink-3); }
 .choice .badge { grid-column: 1; }
 .badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px; background: var(--mint-soft); color: var(--mint-dark); letter-spacing: .02em; }
