@@ -6,7 +6,7 @@
 
   const fresh = () => ({
     zip: '', zipSource: '', zipTried: false, notifyEmail: '',
-    date: '', windows: [], weekOffset: 0,
+    date: '', windows: [], weekOffset: null,
     vehicles: [], activeVehicle: 0, pendingYear: '',
     member: { status: '', tier: '', email: '', stage: '' },     contact: { name: '', email: '', phone: '' },
     pkg: {}, addons: {}, applyAll: true, addonCollapsed: {},
@@ -166,7 +166,10 @@
   screens.when = () => {
     const today = isoDay(0);
     const todayOpen = beforeNoon();
-    state.weekOffset = Math.max(0, Math.min(8, state.weekOffset || 0));
+    const firstOpen = new Date(); firstOpen.setHours(12, 0, 0, 0); if (!todayOpen) firstOpen.setDate(firstOpen.getDate() + 1);
+    const defaultOffset = firstOpen.getDay() < new Date().getDay() ? 1 : 0;
+    if (state.weekOffset == null) state.weekOffset = defaultOffset;
+    state.weekOffset = Math.max(0, Math.min(8, state.weekOffset));
     const base = new Date(); base.setHours(12, 0, 0, 0); base.setDate(base.getDate() - base.getDay() + state.weekOffset * 7);
     const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(base); d.setDate(base.getDate() + i); return d.toISOString().slice(0, 10); });
     const dayState = d => d < today ? 'past' : (d === today && !todayOpen) ? 'full' : 'open';
