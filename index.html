@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Book a detail · Mint Mobile Detail</title>
+  <meta name="description" content="Prototype of a streamlined booking flow for Mint Mobile Detail.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="demo-bar" id="demo-bar">
+    <span class="demo-tag">Prototype</span>
+    <label class="demo-toggle"><input type="checkbox" id="demo-before-noon"> Pretend it is before noon</label>
+    <button class="demo-btn" id="demo-reset" type="button">Start over</button>
+  </div>
+  <div class="phone">
+    <header class="topbar">
+      <button class="back" id="back" type="button" aria-label="Back">‹</button>
+      <div class="brand"><span class="brand-mark">Mint</span> Mobile Detail</div>
+      <div class="phone-link"><a href="tel:4045007025">Call</a></div>
+    </header>
+    <div class="progress"><div class="progress-bar" id="progress"></div></div>
+    <main id="app" class="screen"></main>
+    <footer class="sticky" id="sticky"></footer>
+  </div>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
