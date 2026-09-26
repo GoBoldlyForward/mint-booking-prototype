@@ -102,6 +102,8 @@ window.MINT = (() => {
     '30030': 'Decatur', '30002': 'Avondale Estates', '30307': 'Candler Park', '30306': 'Virginia-Highland', '30308': 'Midtown', '30309': 'Midtown', '30305': 'Buckhead', '30319': 'Brookhaven', '30338': 'Dunwoody', '30341': 'Chamblee', '30328': 'Sandy Springs', '30339': 'Vinings', '30080': 'Smyrna', '30060': 'Marietta', '30344': 'East Point', '30354': 'Hapeville', '30084': 'Tucker', '30317': 'Kirkwood', '30316': 'East Atlanta', '30312': 'Grant Park', '30318': 'West Midtown', '30310': 'West End',
   };
 
+  const TOP_NEIGHBORHOODS = [['Decatur','30030'],['Avondale Estates','30002'],['Midtown','30308'],['Virginia-Highland','30306'],['Kirkwood','30317'],['Grant Park','30312'],['Buckhead','30305'],['Brookhaven','30319'],['Dunwoody','30338'],['Sandy Springs','30328'],['Vinings','30339'],['Smyrna','30080'],['Marietta','30060'],['East Point','30344']];
+
   const MOCK_ADDRESSES = [
     { line1: '2852 E College Ave', city: 'Decatur', state: 'GA', zip: '30030' },
     { line1: '145 Sycamore St', city: 'Decatur', state: 'GA', zip: '30030' },
@@ -133,7 +135,7 @@ window.MINT = (() => {
 
   return {
     SIZES, PACKAGES, ADDON_GROUPS, ADDONS, VEHICLES, VEHICLE_INDEX, POPULAR,
-    SERVED, EDGE, TRAVEL_FEE, NEIGHBORHOODS, MOCK_ADDRESSES, WINDOWS,
+    SERVED, EDGE, TRAVEL_FEE, NEIGHBORHOODS, TOP_NEIGHBORHOODS, MOCK_ADDRESSES, WINDOWS,
     SAME_DAY_FEE: 30,
     NEW_MEMBER_CREDIT: 20,
     MEMBER_DISCOUNT: { maintenance: 0.15, elite: 0.20 },

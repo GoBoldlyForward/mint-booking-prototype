@@ -206,3 +206,14 @@ details ul { margin: 6px 0 0; padding-left: 18px; font-size: 13px; color: var(--
 .code { font-family: ui-monospace, Menlo, monospace; font-weight: 700; letter-spacing: .1em; background: var(--mint-soft); color: var(--mint-dark); padding: 6px 10px; border-radius: 8px; display: inline-block; }
 .fade { animation: fade .25s ease; }
 @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* Week navigation */
+.week-nav { display: flex; align-items: center; justify-content: space-between; margin: 6px 0 0; font-weight: 600; font-size: 15px; }
+.nav { width: 40px; height: 40px; border: 1.5px solid var(--line); background: #fff; border-radius: 12px; font-size: 22px; line-height: 1; cursor: pointer; color: var(--ink-2); }
+.nav:disabled { opacity: .3; cursor: not-allowed; }
+.day .n.full { font-size: 11px; font-weight: 700; color: var(--danger); text-transform: uppercase; line-height: 20px; }
+.chips.center { justify-content: center; }
+.choice { position: relative; overflow: visible; }
+.badge.float { position: absolute; top: -10px; left: 14px; font-size: 11px; padding: 2px 8px; }
+.perks { margin: 8px 0 0; padding-left: 18px; color: var(--ink-2); font-size: 14px; }
+.perks li { margin: 6px 0; }

@@ -6,7 +6,7 @@
 
   const fresh = () => ({
     zip: '', zipSource: '', zipTried: false, notifyEmail: '',
-    date: '', window: '',
+    date: '', windows: [], weekOffset: 0,
     vehicles: [], activeVehicle: 0, pendingYear: '',
     member: { status: '', tier: '', email: '', stage: '' }, prepay: null,
     contact: { name: '', email: '', phone: '' },
@@ -153,14 +153,16 @@
       <button class="btn secondary" id="notify-btn" type="button">Notify me</button>`;
     return {
       html: `<div class="eyebrow">Step 1</div><h1>Where is the car?</h1><p class="lede">Just the zip for now. It tells us if we serve you and which crew is nearby.</p>
-        <label class="field"><span>Zip code ${state.zipSource === 'ip' ? '<span class="badge gray">detected from your connection</span>' : ''}</span>
+        <label class="field"><span>Enter your zip code ${state.zipSource === 'ip' ? '<span class="badge gray">detected from your connection</span>' : ''}</span>
         <input class="input big" id="zip" inputmode="numeric" pattern="[0-9]*" maxlength="5" value="${h(state.zip)}" placeholder="30030"></label>
         ${status}
-        <p class="muted">Try 30030 (served), 30075 (travel fee) or 31401 (not yet).</p>`,
+        <p class="muted" style="text-align:center;margin:6px 0 4px">or pick one of our top neighborhoods</p>
+        <div class="chips center">${M.TOP_NEIGHBORHOODS.map(([name, zip]) => `<button type="button" class="chip ${state.zip === zip ? 'selected' : ''}" data-zip="${zip}">${h(name)}</button>`).join('')}</div>`,
       after() {
         const z = $('#zip');
         z.addEventListener('input', () => { state.zip = digits(z.value).slice(0, 5); state.zipSource = 'typed'; save(); if (state.zip.length === 5 || state.zip.length === 0) render(); else footer(); });
         if (!state.zip) z.focus();
+        $$('[data-zip]').forEach(c => c.addEventListener('click', () => { state.zip = c.dataset.zip; state.zipSource = 'pill'; save(); render(); }));
         const nb = $('#notify-btn'); if (nb) nb.addEventListener('click', () => { state.notifyEmail = $('#notify').value; save(); nb.textContent = 'We will be in touch'; nb.disabled = true; });
       },
       valid: () => st === 'served' || st === 'edge',
@@ -169,24 +171,33 @@
 
   screens.when = () => {
     const today = isoDay(0);
-    const days = Array.from({ length: 8 }, (_, i) => isoDay(i));
     const todayOpen = beforeNoon();
-    if (!state.date || !days.includes(state.date) || (state.date === today && !todayOpen)) { state.date = isoDay(1); state.window = ''; }
+    state.weekOffset = Math.max(0, Math.min(8, state.weekOffset || 0));
+    const base = new Date(); base.setHours(12, 0, 0, 0); base.setDate(base.getDate() - base.getDay() + state.weekOffset * 7);
+    const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(base); d.setDate(base.getDate() + i); return d.toISOString().slice(0, 10); });
+    const dayState = d => d < today ? 'past' : (d === today && !todayOpen) ? 'full' : 'open';
+    if (state.date && dayState(state.date) !== 'open') { state.date = ''; state.windows = []; }
     const wins = M.WINDOWS.filter(w => state.date !== today || w.start >= nowHour() + 2);
-    if (state.window && !wins.some(w => w.key === state.window)) state.window = '';
+    state.windows = (state.windows || []).filter(k => wins.some(w => w.key === k));
     save();
+    const first = new Date(days[0] + 'T12:00:00'), last = new Date(days[6] + 'T12:00:00');
+    const range = `${first.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} to ${last.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
     return {
-      html: `<div class="eyebrow">Step 2</div><h1>When works?</h1><p class="lede">Pick a day and a two-hour arrival window. We text when the van is on the way.</p>
-        <div class="days">${days.map(d => { const dt = new Date(d + 'T12:00:00'); const off = d === today && !todayOpen; return `<button type="button" class="day ${state.date === d ? 'selected' : ''} ${off ? 'off' : ''}" data-d="${d}" ${off ? 'disabled' : ''}><div class="d">${dt.toLocaleDateString(undefined, { weekday: 'short' })}</div><div class="n">${dt.getDate()}</div></button>`; }).join('')}</div>
-        ${state.date === today ? `<div class="note warn"><b>Same-day priority: +${money(M.SAME_DAY_FEE)}.</b> Book before noon and we reshuffle a route to get to you today.</div>` : todayOpen ? `<div class="note">Need it today? It is before noon, so today is open for a ${money(M.SAME_DAY_FEE)} priority fee.</div>` : `<div class="note plain">Today is full. Book before noon on a weekday for same-day service.</div>`}
-        <h2>${h(fmtDay(state.date))}</h2>
-        <div class="choices">${wins.map(w => `<button type="button" class="choice ${state.window === w.key ? 'selected' : ''}" data-w="${w.key}"><span class="t">${h(w.label)}</span><span class="s">Arrival window</span></button>`).join('')}</div>
-        <p class="muted">Weekends fill first. Most customers book three to seven days out.</p>`,
+      html: `<div class="eyebrow">Step 2</div><h1>When works?</h1><p class="lede">Pick a day, then every arrival window that could work. More windows means an earlier slot.</p>
+        <div class="week-nav"><button type="button" class="nav" id="wk-prev" ${state.weekOffset === 0 ? 'disabled' : ''} aria-label="Previous week">‹</button><span>${h(range)}</span><button type="button" class="nav" id="wk-next" ${state.weekOffset >= 8 ? 'disabled' : ''} aria-label="Next week">›</button></div>
+        <div class="days">${days.map(d => { const dt = new Date(d + 'T12:00:00'); const ds = dayState(d); return `<button type="button" class="day ${state.date === d ? 'selected' : ''} ${ds !== 'open' ? 'off' : ''}" data-d="${d}" ${ds !== 'open' ? 'disabled' : ''}><div class="d">${dt.toLocaleDateString(undefined, { weekday: 'short' })}</div><div class="n ${ds === 'full' ? 'full' : ''}">${ds === 'full' ? 'Full' : dt.getDate()}</div></button>`; }).join('')}</div>
+        ${state.date ? `<h2>${h(fmtDay(state.date))}</h2>
+          ${state.date === today ? `<div class="note warn"><b>Same-day priority: +${money(M.SAME_DAY_FEE)}.</b> Booked before noon, so we reshuffle a route to get to you today.</div>` : ''}
+          <div class="choices">${wins.map(w => `<button type="button" class="choice ${state.windows.includes(w.key) ? 'selected' : ''}" data-w="${w.key}"><span class="t">${h(w.label)}</span><span class="s">${state.windows.includes(w.key) ? 'Works for me' : 'Tap if this works'}</span></button>`).join('')}</div>
+          <p class="muted">Pick every window that works. We confirm one two-hour window right after you book.</p>` :
+          `<p class="muted">Pick a day above. Weekends fill first, and most customers book three to seven days out.</p>`}`,
       after() {
-        $$('.day').forEach(b => b.addEventListener('click', () => { state.date = b.dataset.d; state.window = ''; save(); render(); }));
-        $$('[data-w]').forEach(b => b.addEventListener('click', () => { state.window = b.dataset.w; save(); render(); }));
+        $('#wk-prev').addEventListener('click', () => { state.weekOffset--; save(); render(); });
+        $('#wk-next').addEventListener('click', () => { state.weekOffset++; save(); render(); });
+        $$('.day').forEach(b => b.addEventListener('click', () => { state.date = b.dataset.d; state.windows = []; save(); render(); }));
+        $$('[data-w]').forEach(b => b.addEventListener('click', () => { const k = b.dataset.w; state.windows = state.windows.includes(k) ? state.windows.filter(x => x !== k) : [...state.windows, k]; save(); render(); }));
       },
-      valid: () => !!state.window,
+      valid: () => !!state.date && state.windows.length > 0,
     };
   };
 
@@ -231,12 +242,21 @@
     if (m.status === 'declined') detail = `
       <div class="note plain" style="margin-top:14px"><b>One more way to save.</b> Buy your next three cleans now and take 10% off all of them. Use them any time in the next year, on this car.</div>
       <div class="btn-row"><button class="btn ${state.prepay === true ? '' : 'secondary'}" id="prepay-yes" type="button">Prepay 3, save 10%</button><button class="btn ${state.prepay === false ? '' : 'ghost'}" id="prepay-no" type="button">Just this one</button></div>`;
+    if (!m.status) detail = `
+      <h2>What joining gets you</h2>
+      <ul class="perks">
+        <li><b>$20 off</b> this clean, today</li>
+        <li><b>15% to 20% off</b> a full detail every membership year</li>
+        <li><b>$20 to $35 credit</b> every month toward washes or a second car</li>
+        <li><b>Priority booking</b> when the schedule is tight</li>
+        <li>From ${money(M.MEMBERSHIP_PRICE)} a month, cancel any time</li>
+      </ul>`;
     return {
-      html: `<div class="eyebrow">Step 4</div><h1>Members save on every visit.</h1><p class="lede">Sign in if you have a membership. If not, joining now takes $20 off this clean.</p>
+      html: `<div class="eyebrow">Step 4</div><h1>Members save money.</h1><p class="lede">Sign in if you have a membership. If not, joining now takes $20 off this clean.</p>
         <div class="choices">
-          <button type="button" ${pick('member', m.status === 'member')}><span class="t">I'm a member</span><span class="s">Sign in to apply your discount and credits</span></button>
-          <button type="button" ${pick('new', m.status === 'new')}><span class="badge pop">Save $20 today</span><span class="t">Join now</span><span class="s">From ${money(M.MEMBERSHIP_PRICE)} a month, cancel any time</span></button>
-          <button type="button" ${pick('declined', m.status === 'declined')}><span class="t">Not today</span><span class="s">Continue as a guest</span></button>
+          <button type="button" ${pick('declined', m.status === 'declined')}><span class="t">Not now</span><span class="s">Continue as a guest</span></button>
+          <button type="button" ${pick('member', m.status === 'member')}><span class="t">I'm already a member</span><span class="s">Sign in to apply your discount and credits</span></button>
+          <button type="button" ${pick('new', m.status === 'new')}><span class="badge pop float">Save $20 today</span><span class="t">Join now</span><span class="s">From ${money(M.MEMBERSHIP_PRICE)} a month, cancel any time</span></button>
         </div>${detail}`,
       after() {
         $$('[data-m]').forEach(b => b.addEventListener('click', () => { state.member = { status: b.dataset.m, tier: state.member.tier, email: state.member.email, stage: '' }; if (b.dataset.m !== 'declined') state.prepay = null; save(); render(); }));
@@ -323,7 +343,7 @@
   screens.another = () => {
     const v0 = state.vehicles[0];
     return {
-      html: `<div class="eyebrow">Step 8</div><h1>Add a second car, take 10% off it.</h1><p class="lede">The crew is already in your driveway. A second vehicle in the same visit is ${money(pkgOf(pkgFor(v0)).price[v0.size] * 0.9)} for the same ${h(pkgOf(pkgFor(v0)).name)} package on a ${h(M.SIZES[v0.size].label.toLowerCase())}, less on a smaller car.</p>
+      html: `<div class="eyebrow">Step 8</div><h1>Add a second car?</h1><p class="lede">It gets 10% off. The crew is already in your driveway, so A second vehicle in the same visit is ${money(pkgOf(pkgFor(v0)).price[v0.size] * 0.9)} for the same ${h(pkgOf(pkgFor(v0)).name)} package on a ${h(M.SIZES[v0.size].label.toLowerCase())}, less on a smaller car.</p>
         ${typeaheadHtml('veh2', 'Spouse, kids, work truck: 2020 Honda CR-V')}
         <div class="chips">${M.POPULAR.map(p => `<button type="button" class="chip" data-pop="${h(p)}">${h(p)}</button>`).join('')}</div>
         <button class="btn ghost" id="no-thanks" type="button">No thanks, just the one</button>`,
@@ -382,6 +402,7 @@
     };
   };
 
+  function windowsLabel() { const ls = M.WINDOWS.filter(x => (state.windows || []).includes(x.key)).map(x => x.label); return ls.length > 1 ? 'one of: ' + ls.join(', ') : (ls[0] || ''); }
   function summaryHtml(q) {
     return `<div class="summary">
       ${q.lines.map(l => `<div class="line ${l.discount ? 'discount' : ''}"><span>${h(l.label)}${l.sub ? `<span class="sub">${h(l.sub)}</span>` : ''}</span><span>${l.quote ? 'quoted' : money(l.amount)}</span></div>`).join('')}
@@ -391,10 +412,10 @@
   }
 
   screens.pay = () => {
-    const q = quote(); const w = M.WINDOWS.find(x => x.key === state.window);
+    const q = quote(); const w = windowsLabel();
     return {
-      html: `<div class="eyebrow">Step 10</div><h1>Confirm and pay the deposit.</h1>
-        <div class="kv" style="margin-bottom:14px"><dt>When</dt><dd>${h(fmtDay(state.date))}, ${h(w ? w.label : '')}</dd><dt>Where</dt><dd>${h(state.address.line1)}${state.address.line2 ? ', ' + h(state.address.line2) : ''}, ${h(state.address.city)}</dd><dt>Cars</dt><dd>${state.vehicles.map(vehicleName).map(h).join(' · ')}</dd></div>
+      html: `<div class="eyebrow">Step 10</div><h1>Confirm and pay.</h1>
+        <div class="kv" style="margin-bottom:14px"><dt>When</dt><dd>${h(fmtDay(state.date))}, ${h(w)}</dd><dt>Where</dt><dd>${h(state.address.line1)}${state.address.line2 ? ', ' + h(state.address.line2) : ''}, ${h(state.address.city)}</dd><dt>Cars</dt><dd>${state.vehicles.map(vehicleName).map(h).join(' · ')}</dd></div>
         ${summaryHtml(q)}
         <div class="choices">
           <button type="button" class="btn dark wallet" id="apple">Apple Pay</button>
@@ -420,10 +441,10 @@
   };
 
   screens.done = () => {
-    const q = quote(); const w = M.WINDOWS.find(x => x.key === state.window);
+    const q = quote(); const w = windowsLabel();
     return {
       html: `<div class="done-hero"><div class="mark">✓</div><h1>You're booked, ${h((state.contact.name || 'friend').split(' ')[0])}.</h1><p class="lede">Confirmation ${h(state.bookingId)} is on its way to ${h(state.contact.email)}. We text when the crew is heading over.</p></div>
-        <dl class="kv"><dt>When</dt><dd>${h(fmtDay(state.date))}, ${h(w ? w.label : '')}</dd><dt>Where</dt><dd>${h(state.address.line1)}, ${h(state.address.city)}</dd><dt>Cars</dt><dd>${state.vehicles.map(vehicleName).map(h).join('<br>')}</dd><dt>Paid today</dt><dd>${money(q.deposit)}</dd><dt>Due after</dt><dd>${money(q.total - q.deposit)}</dd></dl>
+        <dl class="kv"><dt>When</dt><dd>${h(fmtDay(state.date))}, ${h(w)}</dd><dt>Where</dt><dd>${h(state.address.line1)}, ${h(state.address.city)}</dd><dt>Cars</dt><dd>${state.vehicles.map(vehicleName).map(h).join('<br>')}</dd><dt>Paid today</dt><dd>${money(q.deposit)}</dd><dt>Due after</dt><dd>${money(q.total - q.deposit)}</dd></dl>
         <h2>Give $20, get $20</h2><p class="small" style="color:var(--ink-2)">Share your code. Friends get $20 off their first clean and you get $20 credit when they book.</p>
         <span class="code">MINT-${h((state.contact.name || 'YOU').split(' ')[0].toUpperCase().slice(0, 6))}20</span>
         <div class="btn-row" style="margin-top:22px"><button class="btn secondary" type="button" id="cal">Add to calendar</button><button class="btn ghost" type="button" id="again">Start over</button></div>`,
