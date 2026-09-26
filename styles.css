@@ -203,7 +203,10 @@ details ul { margin: 6px 0 0; padding-left: 18px; font-size: 13px; color: var(--
 .check input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--mint); }
 
 .done-hero { text-align: center; padding: 26px 0 10px; }
-.done-hero .mark { width: 72px; height: 72px; border-radius: 50%; background: var(--mint); color: #fff; font-size: 38px; display: grid; place-items: center; margin: 0 auto 14px; }
+.done-hero h1 { font-size: 30px; }
+.done-hero .mark { font-size: 64px; line-height: 1; margin: 0 auto 14px; animation: pop .5s cubic-bezier(.2,1.4,.4,1); }
+@keyframes pop { from { transform: scale(.4); opacity: 0; } to { transform: none; opacity: 1; } }
+.confetti { position: fixed; inset: 0; pointer-events: none; z-index: 50; }
 .kv { display: grid; grid-template-columns: 110px 1fr; gap: 6px 12px; font-size: 14px; }
 .kv dt { color: var(--ink-3); }
 .kv dd { margin: 0; font-weight: 600; }

@@ -441,18 +441,48 @@
   screens.done = () => {
     const q = quote(); const w = windowsLabel();
     return {
-      html: `<div class="done-hero"><div class="mark">✓</div><h1>You're booked, ${h((state.contact.name || 'friend').split(' ')[0])}.</h1><p class="lede">Confirmation ${h(state.bookingId)} is on its way to ${h(state.contact.email)}. We text when the crew is heading over.</p></div>
+      html: `<div class="done-hero"><div class="mark">🙌</div><h1>You're booked, ${h((state.contact.name || 'friend').split(' ')[0])}!</h1><p class="lede">Clean car, coming right up. Confirmation ${h(state.bookingId)} is on its way to ${h(state.contact.email)}, and we text when the crew is heading over.</p></div>
         <dl class="kv"><dt>When</dt><dd>${h(fmtDay(state.date))}, ${h(w)}</dd><dt>Where</dt><dd>${h(state.address.line1)}, ${h(state.address.city)}</dd><dt>Cars</dt><dd>${state.vehicles.map(vehicleName).map(h).join('<br>')}</dd><dt>Paid today</dt><dd>${money(q.deposit)}</dd><dt>Due after</dt><dd>${money(q.total - q.deposit)}</dd></dl>
         <h2>Give $20, get $20</h2><p class="small" style="color:var(--ink-2)">Share your code. Friends get $20 off their first clean and you get $20 credit when they book.</p>
         <span class="code">MINT-${h((state.contact.name || 'YOU').split(' ')[0].toUpperCase().slice(0, 6))}20</span>
         <div class="btn-row" style="margin-top:22px"><button class="btn secondary" type="button" id="cal">Add to calendar</button><button class="btn ghost" type="button" id="again">Start over</button></div>`,
       after() {
+        confetti();
         $('#cal').addEventListener('click', e => { e.target.textContent = 'Added'; });
         $('#again').addEventListener('click', reset);
       },
       valid: () => false, hideFooter: true,
     };
   };
+
+
+  // ---------- confetti ----------
+  function confetti() {
+    const c = document.createElement('canvas'); c.className = 'confetti'; document.body.appendChild(c);
+    const ctx = c.getContext('2d'); const dpr = window.devicePixelRatio || 1;
+    const size = () => { c.width = innerWidth * dpr; c.height = innerHeight * dpr; c.style.width = innerWidth + 'px'; c.style.height = innerHeight + 'px'; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); };
+    size();
+    const colors = ['#1fa871', '#5ed3a4', '#ffdc4a', '#ffb347', '#ff6b8a', '#659df2', '#ffffff'];
+    const ps = Array.from({ length: 160 }, () => ({
+      x: innerWidth / 2 + (Math.random() - .5) * 120, y: innerHeight * 0.35,
+      vx: (Math.random() - .5) * 14, vy: -Math.random() * 14 - 6,
+      w: 6 + Math.random() * 6, hgt: 8 + Math.random() * 8, r: Math.random() * Math.PI, vr: (Math.random() - .5) * .3,
+      color: colors[Math.floor(Math.random() * colors.length)], life: 1,
+    }));
+    const start = performance.now();
+    (function frame(t) {
+      const dt = Math.min(32, t - (frame.last || t)) / 16; frame.last = t;
+      ctx.clearRect(0, 0, innerWidth, innerHeight);
+      let alive = 0;
+      ps.forEach(p => {
+        p.vy += .35 * dt; p.vx *= .99; p.x += p.vx * dt; p.y += p.vy * dt; p.r += p.vr * dt;
+        if (t - start > 1800) p.life -= .02 * dt;
+        if (p.life <= 0 || p.y > innerHeight + 20) return; alive++;
+        ctx.save(); ctx.globalAlpha = Math.max(0, p.life); ctx.translate(p.x, p.y); ctx.rotate(p.r); ctx.fillStyle = p.color; ctx.fillRect(-p.w / 2, -p.hgt / 2, p.w, p.hgt); ctx.restore();
+      });
+      if (alive && t - start < 4000) requestAnimationFrame(frame); else c.remove();
+    })(performance.now());
+  }
 
   // ---------- render ----------
   let view = null;
