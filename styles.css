@@ -51,7 +51,8 @@ a { color: var(--mint-dark); }
 .back[hidden] { visibility: hidden; display: block; }
 .brand { text-align: center; font-weight: 600; font-size: 15px; color: var(--ink-2); }
 .brand-mark { color: var(--mint); font-weight: 800; }
-.phone-link { text-align: right; font-size: 13px; }
+.call { justify-self: end; width: 40px; height: 40px; border-radius: 12px; background: var(--mint-soft); color: var(--mint-dark); display: grid; place-items: center; text-decoration: none; }
+.call:hover { background: #d6efe2; }
 .progress { height: 4px; background: var(--line); }
 .progress-bar { height: 100%; background: var(--mint); transition: width .3s ease; }
 
