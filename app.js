@@ -185,8 +185,8 @@
         <div class="days">${days.map(d => { const dt = new Date(d + 'T12:00:00'); const ds = dayState(d); return `<button type="button" class="day ${state.date === d ? 'selected' : ''} ${ds !== 'open' ? 'off' : ''}" data-d="${d}" ${ds !== 'open' ? 'disabled' : ''}><div class="d">${dt.toLocaleDateString(undefined, { weekday: 'short' })}</div><div class="n ${ds === 'full' ? 'full' : ''}">${ds === 'full' ? 'Full' : dt.getDate()}</div></button>`; }).join('')}</div>
         ${state.date ? `<h2>${h(fmtDay(state.date))}</h2>
           ${state.date === today ? `<div class="note warn"><b>Same-day priority: +${money(M.SAME_DAY_FEE)}.</b> Booked before noon, so we reshuffle a route to get to you today.</div>` : ''}
-          <div class="choices">${wins.map(w => `<button type="button" class="choice ${state.windows.includes(w.key) ? 'selected' : ''}" data-w="${w.key}"><span class="t">${h(w.label)}</span><span class="s">${state.windows.includes(w.key) ? 'Works for me' : 'Tap if this works'}</span></button>`).join('')}</div>
-          <p class="muted">Pick every window that works. We confirm one two-hour window right after you book.</p>` :
+          <p class="muted" style="margin:-4px 0 12px">Pick every window that works. We confirm one two-hour window right after you book.</p>
+          <div class="choices">${wins.map(w => `<button type="button" class="choice ${state.windows.includes(w.key) ? 'selected' : ''}" data-w="${w.key}"><span class="t">${h(w.label)}</span><span class="s">${state.windows.includes(w.key) ? 'Works for me' : 'Tap if this works'}</span></button>`).join('')}</div>` :
           `<p class="muted">Pick a day above. Weekends fill first, and most customers book three to seven days out.</p>`}`,
       after() {
         $('#wk-prev').addEventListener('click', () => { state.weekOffset--; save(); render(); });
