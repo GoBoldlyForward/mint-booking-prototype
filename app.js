@@ -12,7 +12,7 @@
     pkg: {}, addons: {}, applyAll: true, addonCollapsed: {},
     anotherDeclined: false,
     address: { line1: '', line2: '', city: '', state: '', zip: '', source: '', notes: '', type: 'home' },
-    payment: { method: '', consentReminders: false, consentOffers: false },
+    payment: { method: '', cc: '', consentReminders: false, consentOffers: false },
     bookingId: '',
     demoBeforeNoon: false,
   });
@@ -407,31 +407,34 @@
   }
 
   screens.pay = () => {
-    const q = quote(); const w = windowsLabel();
+    const q = quote(); const w = windowsLabel(); const pm = state.payment.method;
+    const opt = (k, title, sub, body) => `<div class="choice expand ${pm === k ? 'selected' : ''}"><div class="choice-head" data-pay="${k}"><span class="t">${title}</span><span class="s">${sub}</span></div>${pm === k && body ? `<div class="choice-body">${body}</div>` : ''}</div>`;
+    const cardBody = `<label class="field"><span>Card number</span><input class="input" id="cc" inputmode="numeric" autocomplete="cc-number" value="${h(state.payment.cc || '')}" placeholder="4242 4242 4242 4242"></label>
+        <div class="row"><label class="field"><span>Expires</span><input class="input" id="exp" autocomplete="cc-exp" placeholder="MM / YY"></label><label class="field"><span>CVC</span><input class="input" id="cvc" inputmode="numeric" autocomplete="cc-csc" placeholder="123"></label></div>
+        <p class="small" style="margin:0;color:var(--ink-2)">Your card is charged ${money(q.deposit)} now and the balance when the crew finishes.</p>`;
+    const payLabel = pm === 'apple' ? `Pay ${money(q.deposit)} with Apple Pay` : pm === 'google' ? `Pay ${money(q.deposit)} with Google Pay` : `Pay ${money(q.deposit)} deposit`;
     return {
       html: `${eyebrow()}<h1>Confirm and pay.</h1>
         <div class="kv" style="margin-bottom:14px"><dt>When</dt><dd>${h(fmtDay(state.date))}, ${h(w)}</dd><dt>Where</dt><dd>${h(state.address.line1)}${state.address.line2 ? ', ' + h(state.address.line2) : ''}, ${h(state.address.city)}</dd><dt>Cars</dt><dd>${state.vehicles.map(vehicleName).map(h).join(' · ')}</dd></div>
         ${summaryHtml(q)}
+        <h2>How would you like to pay?</h2>
         <div class="choices">
-          <button type="button" class="btn dark wallet" id="apple">Apple Pay</button>
-          <button type="button" class="btn secondary wallet" id="gpay">Google Pay</button>
+          ${opt('apple', 'Apple Pay', 'One tap, nothing to type')}
+          ${opt('google', 'Google Pay', 'One tap, nothing to type')}
+          ${opt('card', 'Pay with card', 'Visa, Mastercard, Amex, Discover', cardBody)}
         </div>
-        <p class="muted" style="text-align:center;margin:12px 0">or pay with a card</p>
-        <label class="field"><span>Card number</span><input class="input" id="cc" inputmode="numeric" placeholder="4242 4242 4242 4242"></label>
-        <div class="row"><label class="field"><span>Expires</span><input class="input" id="exp" placeholder="MM / YY"></label><label class="field"><span>CVC</span><input class="input" id="cvc" inputmode="numeric" placeholder="123"></label></div>
-        <label class="check"><input type="checkbox" id="c1" ${state.payment.consentReminders ? 'checked' : ''}> Text and email me appointment reminders</label>
+        <label class="check" style="margin-top:18px"><input type="checkbox" id="c1" ${state.payment.consentReminders ? 'checked' : ''}> Text and email me appointment reminders</label>
         <label class="check"><input type="checkbox" id="c2" ${state.payment.consentOffers ? 'checked' : ''}> Send me member offers now and then</label>
         <p class="muted">Cancel or move your appointment up to 72 hours ahead for a full refund of the deposit. Inside 72 hours the deposit goes to the crew who held the time.</p>`,
       after() {
-        const finish = m => { state.payment.method = m; state.bookingId = 'MINT-' + Math.random().toString(36).slice(2, 7).toUpperCase(); save(); go('done'); };
-        $('#apple').addEventListener('click', () => finish('apple'));
-        $('#gpay').addEventListener('click', () => finish('google'));
+        $$('[data-pay]').forEach(b => b.addEventListener('click', () => { if (state.payment.method === b.dataset.pay) return; state.payment.method = b.dataset.pay; save(); render(); const cc = $('#cc'); if (cc) cc.focus(); }));
+        const cc = $('#cc'); if (cc) cc.addEventListener('input', () => { state.payment.cc = cc.value; save(); footer(); });
         $('#c1').addEventListener('change', e => { state.payment.consentReminders = e.target.checked; save(); });
         $('#c2').addEventListener('change', e => { state.payment.consentOffers = e.target.checked; save(); });
-        ['cc', 'exp', 'cvc'].forEach(id => $('#' + id).addEventListener('input', footer));
       },
-      valid: () => true, payLabel: `Pay ${money(q.deposit)} deposit`,
-      pay() { const ok = digits($('#cc').value).length >= 12; if (!ok) { $('#cc').focus(); return; } state.payment.method = 'card'; state.bookingId = 'MINT-' + Math.random().toString(36).slice(2, 7).toUpperCase(); save(); go('done'); },
+      valid: () => pm === 'apple' || pm === 'google' || (pm === 'card' && digits(state.payment.cc || '').length >= 12),
+      payLabel,
+      pay() { state.bookingId = 'MINT-' + Math.random().toString(36).slice(2, 7).toUpperCase(); save(); go('done'); },
     };
   };
 
