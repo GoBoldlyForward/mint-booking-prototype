@@ -1,0 +1,563 @@
+/* Mint booking prototype. Single-file step machine, no framework, state in localStorage. */
+(() => {
+  const M = window.MINT;
+  const KEY = 'mint-proto-v2';
+  const STEPS = ['where', 'when', 'vehicles', 'membership', 'tier', 'who', 'services', 'addons', 'another', 'address', 'pay', 'done'];
+
+  const fresh = () => ({
+    zip: '', zipSource: '', zipTried: false, notifyEmail: '',
+    date: '', windows: [], weekOffset: null,
+    vehicles: [], activeVehicle: 0, pendingYear: '',
+    member: { status: '', tier: '', email: '', stage: '' },     contact: { name: '', email: '', phone: '' },
+    pkg: {}, addons: {}, applyAll: true, addonCollapsed: {}, returnTo: '',
+    anotherDeclined: false,
+    address: { line1: '', line2: '', city: '', state: '', zip: '', source: '', notes: '', type: 'home' },
+    payment: { method: '', cc: '', consentReminders: false, consentOffers: false },
+    bookingId: '',
+    demoBeforeNoon: false,
+  });
+
+  let state = load();
+  function load() { try { return Object.assign(fresh(), JSON.parse(localStorage.getItem(KEY) || '{}')); } catch { return fresh(); } }
+  function save() { localStorage.setItem(KEY, JSON.stringify(state)); }
+
+  // ---------- helpers ----------
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+  const h = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const money = n => (n < 0 ? '−$' : '$') + (Math.abs(Math.round(n * 100) / 100)).toFixed(2);
+  const uid = () => Math.random().toString(36).slice(2, 8);
+  const vehicleName = v => [v.year, v.make, v.model].filter(Boolean).join(' ');
+  const digits = s => (s || '').replace(/\D/g, '');
+  const emailOk = s => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s || '');
+
+  function nowHour() { if (state.demoBeforeNoon) return 10; const d = new Date(); return d.getHours() + d.getMinutes() / 60; }
+  function beforeNoon() { return nowHour() < 12; }
+  function isoDay(offset) { const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() + offset); return d.toISOString().slice(0, 10); }
+  function fmtDay(iso) { const d = new Date(iso + 'T12:00:00'); return d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }); }
+
+  function zipStatus(zip) {
+    if (!/^\d{5}$/.test(zip)) return 'incomplete';
+    if (M.SERVED.has(zip)) return 'served';
+    if (M.EDGE.has(zip)) return 'edge';
+    return 'none';
+  }
+  function neighborhood(zip) { return M.NEIGHBORHOODS[zip] || (M.SERVED.has(zip) ? 'your neighborhood' : zip); }
+
+  const pkgOf = key => M.PACKAGES.find(p => p.key === key);
+  function pkgFor(v) { return state.pkg[v.id]; }
+  function addonsFor(v) { return state.addons[v.id] || []; }
+
+  // ---------- membership math ----------
+  function memberRate() { return ['member', 'new'].includes(state.member.status) ? M.MEMBER_DISCOUNT[state.member.tier || 'maintenance'] : 0; }
+  function savingsRange(rate) {
+    const v = state.vehicles[0]; if (!v) return '';
+    const full = M.PACKAGES.filter(p => p.scope === 'full').map(p => p.price[v.size] * rate);
+    return `$${Math.round(Math.min(...full))} to $${Math.round(Math.max(...full))}`;
+  }
+  function trustStrip() { return `<div class="trust"><div><b class="stars">★★★★★</b> 1,080+ five-star Google reviews</div><div>Veteran owned · Fully insured · Voted Best of Atlanta</div></div>`; }
+
+  // ---------- pricing ----------
+  function quote() {
+    const lines = [];
+    let services = 0;
+    state.vehicles.forEach((v, i) => {
+      const pk = pkgOf(pkgFor(v));
+      if (!pk) return;
+      let vTotal = pk.price[v.size];
+      lines.push({ label: `${pk.name} · ${vehicleName(v)}`, sub: M.SIZES[v.size].label, amount: pk.price[v.size] });
+      addonsFor(v).forEach(k => {
+        const a = M.ADDONS[k];
+        lines.push({ label: `${a.name}`, sub: vehicleName(v), amount: a.price || 0, quote: a.price == null });
+        vTotal += a.price || 0;
+      });
+      if (i > 0) {
+        const d = vTotal * M.MULTI_VEHICLE_DISCOUNT;
+        lines.push({ label: 'Second car saves 10%', sub: vehicleName(v), amount: -d, discount: true });
+        vTotal -= d;
+      }
+      services += vTotal;
+    });
+    let total = services;
+    let memberSavings = 0;
+    if (memberRate() && state.vehicles[0] && pkgFor(state.vehicles[0])) {
+      const rate = memberRate();
+      const d = pkgOf(pkgFor(state.vehicles[0])).price[state.vehicles[0].size] * rate;
+      const tier = state.member.tier === 'elite' ? 'Elite' : 'Maintenance';
+      lines.push({ label: state.member.status === 'new' ? `New ${tier} member: ${Math.round(rate * 100)}% off today's detail` : `${tier} member: ${Math.round(rate * 100)}% off one full detail`, amount: -d, discount: true });
+      total -= d; memberSavings = d;
+    }
+    if (state.member.status === 'new') { lines.push({ label: `${state.member.tier === 'elite' ? 'Elite' : 'Maintenance'} membership, first month`, sub: 'Cancel any time', amount: M.MEMBERSHIP_PRICE }); total += M.MEMBERSHIP_PRICE; }
+    if (state.date === isoDay(0)) { lines.push({ label: 'Same-day priority', amount: M.SAME_DAY_FEE }); total += M.SAME_DAY_FEE; }
+    if (zipStatus(state.zip) === 'edge') { lines.push({ label: 'Travel fee', sub: 'Outside our core area', amount: M.TRAVEL_FEE }); total += M.TRAVEL_FEE; }
+    total = Math.max(0, total);
+    return { lines, services, total, deposit: total * M.DEPOSIT_RATE, memberSavings };
+  }
+
+  // ---------- navigation ----------
+  function visible(step) {
+    if (step === 'another') return state.vehicles.length === 1 && !state.anotherDeclined;
+    if (step === 'tier') return state.member.status === 'new';
+    return true;
+  }
+  function visibleSteps() { return STEPS.filter(x => x !== 'done' && visible(x)); }
+  function eyebrow() { const vs = visibleSteps(); return `<div class="eyebrow">Step ${vs.indexOf(current()) + 1} of ${vs.length}</div>`; }
+  function current() { const s = location.hash.replace('#', ''); return STEPS.includes(s) ? s : 'where'; }
+  function go(step) { if (location.hash === '#' + step) render(); else location.hash = step; window.scrollTo({ top: 0 }); }
+  function next() {
+    if (state.returnTo && current() !== state.returnTo) {
+      if (!state.vehicles.every(v => pkgFor(v))) { go('services'); return; }
+      if (!state.date || !(state.windows || []).length) { go('when'); return; }
+      if (!state.address.line1) { go('address'); return; }
+      const r = state.returnTo; state.returnTo = ''; save(); go(r); return;
+    }
+    let i = STEPS.indexOf(current()) + 1; while (i < STEPS.length && !visible(STEPS[i])) i++; go(STEPS[Math.min(i, STEPS.length - 1)]); }
+  function back() { let i = STEPS.indexOf(current()) - 1; while (i > 0 && !visible(STEPS[i])) i--; go(STEPS[Math.max(i, 0)]); }
+
+  // ---------- typeahead ----------
+  function typeaheadHtml(id, placeholder) {
+    return `<div class="typeahead" id="${id}"><input class="input" autocomplete="off" placeholder="${h(placeholder)}" inputmode="search"><div class="suggest" hidden></div></div>`;
+  }
+  function bindVehicleTypeahead(id, onPick) {
+    const root = $('#' + id); const input = $('input', root); const list = $('.suggest', root);
+    let items = [], active = -1;
+    const manual = name => {
+      root.innerHTML = `<div class="manual"><label class="field"><span>Your vehicle</span><input class="input" id="${id}-name" value="${h(name)}" placeholder="2015 Saab 9-3"></label>
+        <div class="field"><span>Closest size</span><div class="chips">${Object.entries(M.SIZES).map(([k, z]) => `<button type="button" class="chip" data-size="${k}">${h(z.label)}</button>`).join('')}</div></div>
+        <p class="muted">Pick the closest size. If it prices differently on arrival we tell you before we start.</p></div>`;
+      const nm = $('#' + id + '-name', root);
+      $$('[data-size]', root).forEach(b => b.addEventListener('click', () => { if (!nm.value.trim()) { nm.focus(); return; } onPick({ make: nm.value.trim(), model: '', size: b.dataset.size, year: '' }); }));
+      nm.focus();
+    };
+    const draw = () => {
+      const typed = input.value.trim();
+      list.innerHTML = items.map((it, i) => `<button type="button" data-i="${i}" class="${i === active ? 'active' : ''}"><span>${it.year ? it.year + ' ' : ''}<b>${h(it.make)}</b> ${h(it.model)}</span><span class="size">${h(M.SIZES[it.size].short)}</span></button>`).join('')
+        + (typed.length >= 2 ? `<button type="button" data-manual="1"><span>${items.length ? "I don't see my car" : `Can't find “${h(typed)}”? Add it anyway`}</span><span class="size">pick a size</span></button>` : '');
+      list.hidden = !list.innerHTML;
+    };
+    input.addEventListener('input', () => {
+      const raw = input.value.trim().toLowerCase();
+      const year = (raw.match(/\b(19|20)\d{2}\b/) || [])[0];
+      const q = raw.replace(/\b(19|20)\d{2}\b/, '').trim().split(/\s+/).filter(Boolean);
+      if (!q.length) { items = []; draw(); return; }
+      items = M.VEHICLE_INDEX.filter(v => q.every(t => v.key.includes(t))).slice(0, 8).map(v => ({ ...v, year }));
+      active = -1; draw();
+    });
+    input.addEventListener('keydown', e => {
+      if (e.key === 'ArrowDown') { active = Math.min(active + 1, items.length - 1); draw(); e.preventDefault(); }
+      else if (e.key === 'ArrowUp') { active = Math.max(active - 1, 0); draw(); e.preventDefault(); }
+      else if (e.key === 'Enter' && items[active >= 0 ? active : 0]) { onPick(items[active >= 0 ? active : 0]); e.preventDefault(); }
+      else if (e.key === 'Enter' && input.value.trim().length >= 2) { manual(input.value.trim()); e.preventDefault(); }
+    });
+    list.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; if (b.dataset.manual) manual(input.value.trim()); else onPick(items[+b.dataset.i]); });
+    input.focus();
+  }
+  function addVehicle(it) {
+    state.vehicles.push({ id: uid(), make: it.make, model: it.model, size: it.size, year: it.year || '' });
+    save();
+  }
+
+  // ---------- screens ----------
+  const screens = {};
+
+  screens.where = () => {
+    if (!state.zip && !state.zipTried) {
+      state.zipTried = true; save();
+      fetch('https://ipapi.co/json/').then(r => r.json()).then(j => {
+        if (j && j.postal && !state.zip && current() === 'where' && ['served', 'edge'].includes(zipStatus(String(j.postal)))) { state.zip = String(j.postal); state.zipSource = 'ip'; save(); render(); }
+      }).catch(() => {});
+    }
+    const st = zipStatus(state.zip);
+    let status = '';
+    if (st === 'edge') status = `<div class="note warn"><b>${h(state.zip)}</b> is just outside our core area. We will still come, with a ${money(M.TRAVEL_FEE)} travel fee.</div>`;
+    if (st === 'none') status = `<div class="note danger">We do not reach <b>${h(state.zip)}</b> yet. Leave an email and we will tell you when we do.</div>
+      <label class="field"><span>Email</span><input class="input" id="notify" type="email" value="${h(state.notifyEmail)}" placeholder="you@example.com"></label>
+      <button class="btn secondary" id="notify-btn" type="button">Notify me</button>`;
+    return {
+      html: `${eyebrow()}<h1>Where is the car?</h1><p class="lede">Just the zip for now. It tells us if we serve you and which crew is nearby.</p>
+        <label class="field"><span>Enter your zip code ${state.zipSource === 'ip' ? '<span class="badge gray">detected from your connection</span>' : ''}</span>
+        <input class="input big" id="zip" inputmode="numeric" pattern="[0-9]*" maxlength="5" value="${h(state.zip)}" placeholder="30030"></label>
+        ${status}
+        <p class="muted" style="text-align:center;margin:6px 0 4px">or pick one of our top neighborhoods</p>
+        <div class="chips center">${M.TOP_NEIGHBORHOODS.map(([name, zip]) => `<button type="button" class="chip ${state.zip === zip ? 'selected' : ''}" data-zip="${zip}">${h(name)}</button>`).join('')}</div>
+        ${trustStrip()}`,
+      after() {
+        const z = $('#zip');
+        z.addEventListener('input', () => { state.zip = digits(z.value).slice(0, 5); state.zipSource = 'typed'; save(); if (state.zip.length === 5 || state.zip.length === 0) render(); else footer(); });
+        if (!state.zip) z.focus();
+        $$('[data-zip]').forEach(c => c.addEventListener('click', () => { state.zip = c.dataset.zip; state.zipSource = 'pill'; save(); render(); }));
+        const nb = $('#notify-btn'); if (nb) nb.addEventListener('click', () => { state.notifyEmail = $('#notify').value; save(); nb.textContent = 'We will be in touch'; nb.disabled = true; });
+      },
+      valid: () => st === 'served' || st === 'edge',
+    };
+  };
+
+  screens.when = () => {
+    const today = isoDay(0);
+    const todayOpen = beforeNoon();
+    const firstOpen = new Date(); firstOpen.setHours(12, 0, 0, 0); if (!todayOpen) firstOpen.setDate(firstOpen.getDate() + 1);
+    const defaultOffset = firstOpen.getDay() < new Date().getDay() ? 1 : 0;
+    if (state.weekOffset == null) state.weekOffset = defaultOffset;
+    state.weekOffset = Math.max(0, Math.min(8, state.weekOffset));
+    const base = new Date(); base.setHours(12, 0, 0, 0); base.setDate(base.getDate() - base.getDay() + state.weekOffset * 7);
+    const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(base); d.setDate(base.getDate() + i); return d.toISOString().slice(0, 10); });
+    const dayState = d => d < today ? 'past' : (d === today && !todayOpen) ? 'full' : 'open';
+    if (state.date && dayState(state.date) !== 'open') { state.date = ''; state.windows = []; }
+    const wins = M.WINDOWS.filter(w => state.date !== today || w.start >= nowHour() + 2);
+    state.windows = (state.windows || []).filter(k => wins.some(w => w.key === k));
+    save();
+    const first = new Date(days[0] + 'T12:00:00'), last = new Date(days[6] + 'T12:00:00');
+    const range = `${first.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} to ${last.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+    return {
+      html: `${eyebrow()}<h1>When works?</h1><p class="lede">Pick a day, then every arrival window that could work. More windows means an earlier slot.</p>
+        <div class="week-nav"><button type="button" class="nav" id="wk-prev" ${state.weekOffset === 0 ? 'disabled' : ''} aria-label="Previous week">‹</button><span>${h(range)}</span><button type="button" class="nav" id="wk-next" ${state.weekOffset >= 8 ? 'disabled' : ''} aria-label="Next week">›</button></div>
+        <div class="days">${days.map(d => { const dt = new Date(d + 'T12:00:00'); const ds = dayState(d); return `<button type="button" class="day ${state.date === d ? 'selected' : ''} ${ds !== 'open' ? 'off' : ''}" data-d="${d}" ${ds !== 'open' ? 'disabled' : ''}><div class="d">${dt.toLocaleDateString(undefined, { weekday: 'short' })}</div><div class="n ${ds === 'full' ? 'full' : ''}">${ds === 'full' ? 'Full' : dt.getDate()}</div></button>`; }).join('')}</div>
+        ${state.date ? `<h2>${h(fmtDay(state.date))}</h2>
+          ${state.date === today ? `<div class="note warn"><b>Same-day priority: +${money(M.SAME_DAY_FEE)}.</b> Booked before noon, so we reshuffle a route to get to you today.</div>` : ''}
+          <p class="muted" style="margin:-4px 0 12px">Pick every window that works. Your exact two-hour window arrives by text within 10 minutes of booking.</p>
+          <div class="choices">${wins.map(w => `<button type="button" class="choice ${state.windows.includes(w.key) ? 'selected' : ''}" data-w="${w.key}"><span class="t">${h(w.label)}</span><span class="s">${state.windows.includes(w.key) ? 'Works for me' : 'Tap if this works'}</span></button>`).join('')}</div>` :
+          `<p class="muted">Pick a day above. Weekends fill first, and most customers book three to seven days out.</p>`}`,
+      after() {
+        $('#wk-prev').addEventListener('click', () => { state.weekOffset--; save(); render(); });
+        $('#wk-next').addEventListener('click', () => { state.weekOffset++; save(); render(); });
+        $$('.day').forEach(b => b.addEventListener('click', () => { state.date = b.dataset.d; state.windows = []; save(); render(); }));
+        $$('[data-w]').forEach(b => b.addEventListener('click', () => { const k = b.dataset.w; state.windows = state.windows.includes(k) ? state.windows.filter(x => x !== k) : [...state.windows, k]; save(); render(); }));
+      },
+      valid: () => !!state.date && state.windows.length > 0,
+    };
+  };
+
+  screens.vehicles = () => {
+    const showInput = state.vehicles.length === 0 || state.addingVehicle;
+    return {
+      html: `${eyebrow()}<h1>${state.vehicles.length ? 'Your vehicles' : 'What are we detailing?'}</h1><p class="lede">Start typing the make or model. The price class comes from the car, not from you guessing a size.</p>
+        ${state.vehicles.map((v, i) => `<div class="vehicle"><div class="ico">${i + 1}</div><div><div class="name">${h(vehicleName(v))}</div><div class="sub">Priced as ${h(M.SIZES[v.size].label)}</div></div><button class="x" type="button" data-rm="${v.id}" aria-label="Remove">×</button></div>`).join('')}
+        ${showInput ? `${typeaheadHtml('veh', state.vehicles.length ? 'Add another: 2021 Honda Odyssey' : 'e.g. 2019 Toyota Highlander')}
+          <div class="chips">${M.POPULAR.map(p => `<button type="button" class="chip" data-pop="${h(p)}">${h(p)}</button>`).join('')}</div>` :
+          `<button class="btn secondary" id="add-vehicle" type="button">+ Add another vehicle</button><p class="muted" style="margin-top:8px">A spouse's car, the kids' car, the work truck. Same visit, one crew, and the second car is 10% off.</p>`}`,
+      after() {
+        $$('[data-rm]').forEach(b => b.addEventListener('click', () => { state.vehicles = state.vehicles.filter(v => v.id !== b.dataset.rm); delete state.pkg[b.dataset.rm]; delete state.addons[b.dataset.rm]; save(); render(); }));
+        const add = $('#add-vehicle'); if (add) add.addEventListener('click', () => { state.addingVehicle = true; render(); });
+        if (showInput) {
+          const pick = it => { addVehicle(it); state.addingVehicle = false; render(); };
+          bindVehicleTypeahead('veh', pick);
+          $$('[data-pop]').forEach(c => c.addEventListener('click', () => { const v = M.VEHICLE_INDEX.find(x => `${x.make} ${x.model}` === c.dataset.pop); pick(v); }));
+        }
+      },
+      valid: () => state.vehicles.length > 0,
+    };
+  };
+
+  screens.membership = () => {
+    const m = state.member;
+    let memberBody = '';
+    if (m.stage === 'code') memberBody = `<p class="small" style="margin:0 0 8px;color:var(--ink-2)">We texted a code to the number on file for <b>${h(m.email)}</b>. Any four digits work here.</p><input class="input big" id="code" inputmode="numeric" maxlength="4" placeholder="••••" aria-label="Sign-in code">`;
+    else if (m.stage === 'in') memberBody = `<div class="note" style="margin:0">Welcome back. Your <b>${m.tier === 'elite' ? 'Elite' : 'Maintenance'}</b> discount is applied and your monthly credit is waiting.</div>`;
+    else memberBody = `<input class="input" id="m-email" value="${h(m.email)}" placeholder="Email or mobile on your account" aria-label="Member email or mobile"><button class="btn" id="m-send" type="button" style="margin-top:10px">Send sign-in code</button>`;
+    const v0 = state.vehicles[0];
+    const perks = `<ul class="perks">
+          <li><b>15% off today's detail.</b> That is ${savingsRange(0.15)} on your ${h(v0 ? vehicleName(v0) : 'car')}</li>
+          <li><b>The same discount</b> on a full detail every membership year</li>
+          <li><b>$20 to $35 credit</b> every month toward washes or a second car</li>
+          <li><b>Priority booking</b> when the schedule is tight</li>
+        </ul>`;
+    const joinBody = `${perks}<input class="input" id="n-email" type="email" value="${h(m.email)}" placeholder="you@example.com" aria-label="Email for your membership"><p class="small" style="margin:8px 0 0;color:var(--ink-2)">You pick a plan on the next screen. The discount comes off today's clean.</p>`;
+    const card = (k, title, sub, body, badge, cls = '') => `<div class="choice expand ${cls} ${m.status === k ? 'selected' : ''}">${badge || ''}<div class="choice-head" data-m="${k}"><span class="t">${title}</span><span class="s">${sub}</span></div>${(m.status === k || (k === 'new' && !m.status)) && body ? `<div class="choice-body">${m.status === k ? body : perks}</div>` : ''}</div>`;
+    return {
+      html: `${eyebrow()}<h1>Members save money.</h1><p class="lede">Sign in if you have a membership. If not, joining now takes 15% off this clean.</p>
+        <div class="choices">
+          ${card('declined', 'Not now', 'Continue as a guest')}
+          ${card('member', "I'm already a member", 'Sign in to apply your discount and credits', memberBody)}
+          ${card('new', 'Join now', `From ${money(M.MEMBERSHIP_PRICE)} a month, cancel any time`, joinBody, '<span class="badge pop float">Save 15% today</span>', 'gold')}
+        </div>`,
+      after() {
+        $$('[data-m]').forEach(b => b.addEventListener('click', () => { if (state.member.status === b.dataset.m) return; state.member = { status: b.dataset.m, tier: '', email: state.member.email, stage: '' }; save(); render(); const f = $('#m-email, #n-email'); if (f) f.focus(); }));
+        const ne = $('#n-email'); if (ne) ne.addEventListener('input', () => { state.member.email = ne.value; save(); footer(); });
+        const me = $('#m-email'); if (me) me.addEventListener('input', () => { state.member.email = me.value; save(); });
+        const ms = $('#m-send'); if (ms) ms.addEventListener('click', () => { if (!state.member.email) { $('#m-email').focus(); return; } state.member.stage = 'code'; save(); render(); $('#code').focus(); });
+        const code = $('#code'); if (code) code.addEventListener('input', () => { if (digits(code.value).length === 4) { state.member.stage = 'in'; state.member.tier = /elite/i.test(state.member.email) ? 'elite' : 'maintenance'; save(); render(); } });
+      },
+      valid: () => m.status === 'declined' || (m.status === 'member' && m.stage === 'in') || (m.status === 'new' && emailOk(m.email)),
+    };
+  };
+
+  screens.tier = () => {
+    const m = state.member;
+    const card = (k, title, sub, badge) => `<button type="button" class="choice ${m.tier === k ? 'selected' : ''}" data-tier="${k}">${badge || ''}<span class="t">${title}</span><span class="s">${sub}</span><span class="p">${money(M.MEMBERSHIP_PRICE)}<small>a month</small></span></button>`;
+    return {
+      html: `${eyebrow()}<h1>Pick your plan.</h1><p class="lede">Same price, different perks. Both come off today's detail, and you can cancel any time.</p>
+        <div class="choices">
+          ${card('maintenance', 'Maintenance', `<b>Saves ${savingsRange(0.15)} today.</b> 15% off one full detail a year, $20 monthly credit, a free ceramic sealant upgrade every quarter, priority booking`, '<span class="badge pop float">Most popular</span>')}
+          ${card('elite', 'Elite', `<b>Saves ${savingsRange(0.20)} today.</b> 20% off one full detail a year, $35 monthly credit, $250 off a ceramic coating, a free birthday detail, VIP booking`)}
+        </div>
+        <p class="muted">Your membership email: ${h(m.email)}. First month is charged with today's deposit.</p>`,
+      after() { $$('[data-tier]').forEach(b => b.addEventListener('click', () => { state.member.tier = b.dataset.tier; save(); render(); })); },
+      valid: () => !!m.tier,
+    };
+  };
+
+  screens.who = () => {
+    const c = state.contact;
+    if (!c.email && state.member.email) c.email = state.member.email;
+    return {
+      html: `${eyebrow()}<h1>How to contact you.</h1><p class="lede">Three things, each with a job: a name for the crew, a mobile for the on-the-way text, an email for your receipt and reminder. Nothing else.</p>
+        <label class="field"><span>Name</span><input class="input" id="c-name" autocomplete="name" value="${h(c.name)}" placeholder="Jordan Lee"></label>
+        <label class="field"><span>Mobile <span class="muted">for the on-the-way text</span></span><input class="input" id="c-phone" type="tel" autocomplete="tel" inputmode="tel" value="${h(c.phone)}" placeholder="(404) 555-0134"></label>
+        <label class="field"><span>Email <span class="muted">for your receipt and reminder</span></span><input class="input" id="c-email" type="email" autocomplete="email" value="${h(c.email)}" placeholder="you@example.com"></label>
+        <p class="muted">If you step away now we will save your spot and email you a link back to it.</p>`,
+      after() {
+        ['name', 'email', 'phone'].forEach(k => { const el = $('#c-' + k); el.addEventListener('input', () => { state.contact[k] = el.value; save(); footer(); }); });
+        if (!c.name) $('#c-name').focus();
+      },
+      valid: () => c.name.trim().length > 1 && emailOk(c.email) && digits(c.phone).length >= 10,
+    };
+  };
+
+  function vehicleTabs(step) {
+    if (state.vehicles.length < 2) return '';
+    return `<label class="check" style="margin-top:0"><input type="checkbox" id="apply-all" ${state.applyAll ? 'checked' : ''}> Same ${step} for every car</label>
+      ${state.applyAll ? '' : `<div class="tabs">${state.vehicles.map((v, i) => `<button type="button" class="tab ${state.activeVehicle === i ? 'selected' : ''}" data-tab="${i}">${h(vehicleName(v))}</button>`).join('')}</div>`}`;
+  }
+  function bindTabs() {
+    const aa = $('#apply-all'); if (aa) aa.addEventListener('change', () => { state.applyAll = aa.checked; state.activeVehicle = 0; save(); render(); });
+    $$('[data-tab]').forEach(b => b.addEventListener('click', () => { state.activeVehicle = +b.dataset.tab; save(); render(); }));
+  }
+  function targets() { return state.applyAll ? state.vehicles : [state.vehicles[state.activeVehicle] || state.vehicles[0]]; }
+
+  screens.services = () => {
+    const v = state.applyAll ? state.vehicles[0] : (state.vehicles[state.activeVehicle] || state.vehicles[0]);
+    const sel = pkgFor(v);
+    const card = p => `<button type="button" class="choice ${sel === p.key ? 'selected' : ''}" data-pkg="${p.key}">
+        ${p.popular ? '<span class="badge pop float">Most popular</span>' : ''}<span class="t">${h(p.name)}</span><span class="s">${h(p.tagline)}</span>
+        <span class="p">${memberRate() && v === state.vehicles[0] ? `<s class="was">${money(p.price[v.size])}</s>${money(p.price[v.size] * (1 - memberRate()))}<small>member price</small>` : `${money(p.price[v.size])}<small>${h(M.SIZES[v.size].short)}</small>`}</span>
+        <details><summary>What is included</summary><ul>${p.includes.map(i => `<li>${h(i)}</li>`).join('')}</ul></details></button>`;
+    return {
+      html: `${eyebrow()}<h1>Pick your detail.</h1><p class="lede">Prices below are for ${state.applyAll && state.vehicles.length > 1 ? 'each car, by its size' : 'your ' + h(M.SIZES[v.size].label.toLowerCase())}. No surprises at the driveway.</p>
+        ${vehicleTabs('package')}
+        <div class="choices">${M.PACKAGES.filter(p => p.scope === 'full').map(card).join('')}</div>
+        <h2>Only need part of it?</h2>
+        <div class="choices">${M.PACKAGES.filter(p => p.scope === 'part').map(card).join('')}</div>`,
+      after() {
+        bindTabs();
+        $$('[data-pkg]').forEach(b => b.addEventListener('click', e => { if (e.target.closest('details')) return; targets().forEach(t => { state.pkg[t.id] = b.dataset.pkg; }); save(); render(); }));
+      },
+      valid: () => state.vehicles.every(x => !!pkgFor(x)),
+    };
+  };
+
+  screens.addons = () => {
+    const v = state.applyAll ? state.vehicles[0] : (state.vehicles[state.activeVehicle] || state.vehicles[0]);
+    const chosen = new Set(addonsFor(v));
+    return {
+      html: `${eyebrow()}<h1>Anything extra?</h1><p class="lede">Optional. Tell us now and the crew brings the right gear.</p>
+        ${vehicleTabs('add-ons')}
+        ${M.ADDON_GROUPS.map(g => { const closed = !!state.addonCollapsed[g.key]; const n = g.items.filter(a => chosen.has(a.key)).length; return `<div class="group ${closed ? 'closed' : ''}"><div class="group-head" data-group="${g.key}"><div><h3>${h(g.name)}</h3><div class="gb">${closed && n ? `${n} selected` : h(g.blurb)}</div></div><span class="chev">›</span></div><div class="group-body">
+          ${g.items.map(a => `<label class="addon"><input type="checkbox" data-addon="${a.key}" ${chosen.has(a.key) ? 'checked' : ''}><span><span class="n">${h(a.name)}</span><br><span class="b">${h(a.blurb)}</span></span><span class="p">${a.price == null ? '<span class="badge gray">Quoted</span>' : (a.from ? 'from ' : '') + money(a.price)}</span></label>`).join('')}</div></div>`; }).join('')}`,
+      after() {
+        bindTabs();
+        $$('[data-group]').forEach(g => g.addEventListener('click', () => { state.addonCollapsed[g.dataset.group] = !state.addonCollapsed[g.dataset.group]; save(); render(); }));
+        $$('[data-addon]').forEach(cb => cb.addEventListener('change', () => {
+          targets().forEach(t => { const set = new Set(state.addons[t.id] || []); cb.checked ? set.add(cb.dataset.addon) : set.delete(cb.dataset.addon); state.addons[t.id] = [...set]; });
+          save(); footer();
+        }));
+      },
+      valid: () => true,
+    };
+  };
+
+  screens.another = () => {
+    const v0 = state.vehicles[0];
+    return {
+      html: `${eyebrow()}<h1>Add a second car?</h1><p class="lede">It gets 10% off. The crew is already in your driveway, so A second vehicle in the same visit is ${money(pkgOf(pkgFor(v0)).price[v0.size] * 0.9)} for the same ${h(pkgOf(pkgFor(v0)).name)} package on a ${h(M.SIZES[v0.size].label.toLowerCase())}, less on a smaller car.</p>
+        ${typeaheadHtml('veh2', 'Spouse, kids, work truck: 2020 Honda CR-V')}
+        <div class="chips">${M.POPULAR.map(p => `<button type="button" class="chip" data-pop="${h(p)}">${h(p)}</button>`).join('')}</div>
+        <button class="btn ghost" id="no-thanks" type="button">No thanks, just the one</button>`,
+      after() {
+        const pick = it => { addVehicle(it); const nv = state.vehicles[state.vehicles.length - 1]; state.pkg[nv.id] = pkgFor(v0); state.addons[nv.id] = []; save(); go('address'); };
+        bindVehicleTypeahead('veh2', pick);
+        $$('[data-pop]').forEach(c => c.addEventListener('click', () => pick(M.VEHICLE_INDEX.find(x => `${x.make} ${x.model}` === c.dataset.pop))));
+        $('#no-thanks').addEventListener('click', () => { state.anotherDeclined = true; save(); go('address'); });
+      },
+      valid: () => false, hideFooter: true,
+    };
+  };
+
+  screens.address = () => {
+    const a = state.address;
+    const confirmed = !!a.line1;
+    return {
+      html: `${eyebrow()}<h1>Where exactly?</h1><p class="lede">We need the driveway, not the mailbox. Share your location or start typing and pick the match.</p>
+        ${confirmed ? `<div class="map"><div class="pin">📍</div><div class="lbl">${a.source === 'geo' ? 'Located from your phone (demo address)' : 'Confirmed address'}</div></div>
+          <div class="vehicle"><div class="ico">✓</div><div><div class="name">${h(a.line1)}</div><div class="sub">${h(a.city)}, ${h(a.state)} ${h(a.zip)}</div></div><button class="x" type="button" id="addr-change" aria-label="Change">×</button></div>
+          <label class="field"><span>Apartment, suite or building</span><input class="input" id="line2" value="${h(a.line2)}" placeholder="Optional"></label>
+          <div class="chips">${['home', 'office', 'apartment'].map(t => `<button type="button" class="chip ${a.type === t ? 'selected' : ''}" data-type="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div>
+          <label class="field"><span>Gate code, parking, where the keys will be</span><input class="input" id="notes" value="${h(a.notes)}" placeholder="Gate 4471, car is in the second deck"></label>` :
+        `<button class="btn secondary" id="geo" type="button">Use my location</button>
+          <p class="muted" style="text-align:center;margin:10px 0">or</p>
+          ${typeaheadHtml('addr', 'Start typing your address')}
+          <p class="muted">In the real thing this is Google Places, so the address is confirmed before you ever type a city or zip.</p>
+          ${a.geoError ? `<div class="note warn">${h(a.geoError)}</div>` : ''}`}`,
+      after() {
+        const geo = $('#geo');
+        if (geo) geo.addEventListener('click', () => {
+          geo.textContent = 'Locating…'; geo.disabled = true;
+          const done = () => { const m = M.MOCK_ADDRESSES.find(x => x.zip === state.zip) || M.MOCK_ADDRESSES[0]; state.address = { ...state.address, ...m, source: 'geo', geoError: '' }; save(); render(); };
+          if (!navigator.geolocation) { done(); return; }
+          navigator.geolocation.getCurrentPosition(() => done(), () => { state.address.geoError = 'Location was blocked. Type it below instead.'; save(); render(); }, { timeout: 8000 });
+        });
+        const root = $('#addr');
+        if (root) {
+          const input = $('input', root), list = $('.suggest', root); let items = [];
+          input.addEventListener('input', () => {
+            const q = input.value.trim().toLowerCase();
+            items = q.length < 2 ? [] : M.MOCK_ADDRESSES.filter(x => `${x.line1} ${x.city} ${x.zip}`.toLowerCase().includes(q)).sort((x, y) => (y.zip === state.zip) - (x.zip === state.zip)).slice(0, 6);
+            if (q.length >= 4 && !items.length) items = [{ line1: input.value.trim(), city: neighborhood(state.zip), state: 'GA', zip: state.zip, custom: true }];
+            list.innerHTML = items.map((x, i) => `<button type="button" data-i="${i}"><span><b>${h(x.line1)}</b> ${h(x.city)}, ${h(x.state)} ${h(x.zip)}</span>${x.custom ? '<span class="size">use as typed</span>' : ''}</button>`).join('');
+            list.hidden = !items.length;
+          });
+          list.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; state.address = { ...state.address, ...items[+b.dataset.i], source: 'typed', geoError: '' }; save(); render(); });
+          input.focus();
+        }
+        const ch = $('#addr-change'); if (ch) ch.addEventListener('click', () => { state.address.line1 = ''; save(); render(); });
+        const l2 = $('#line2'); if (l2) l2.addEventListener('input', () => { state.address.line2 = l2.value; save(); });
+        const nt = $('#notes'); if (nt) nt.addEventListener('input', () => { state.address.notes = nt.value; save(); });
+        $$('[data-type]').forEach(c => c.addEventListener('click', () => { state.address.type = c.dataset.type; save(); render(); }));
+      },
+      valid: () => confirmed,
+    };
+  };
+
+  function windowsLabel() { const ls = M.WINDOWS.filter(x => (state.windows || []).includes(x.key)).map(x => x.label); return ls.length > 1 ? 'one of: ' + ls.join(', ') : (ls[0] || ''); }
+  function summaryHtml(q) {
+    return `<div class="summary">
+      ${q.lines.map(l => `<div class="line ${l.discount ? 'discount' : ''}"><span>${h(l.label)}${l.sub ? `<span class="sub">${h(l.sub)}</span>` : ''}</span><span>${l.quote ? 'quoted' : money(l.amount)}</span></div>`).join('')}
+      <div class="line"><span>Total</span><span>${money(q.total)}</span></div>
+      <div class="line"><span>Due after the crew finishes</span><span>${money(q.total - q.deposit)}</span></div>
+      <div class="line due"><span>Due today<span class="sub">25% deposit, refundable up to 72 hours ahead</span></span><span>${money(q.deposit)}</span></div>
+    </div>
+    ${state.member.status === 'new' && q.memberSavings > M.MEMBERSHIP_PRICE ? `<div class="note">Your membership pays for itself today: ${money(q.memberSavings)} saved against a ${money(M.MEMBERSHIP_PRICE)} first month.</div>` : ''}`;
+  }
+
+  screens.pay = () => {
+    const q = quote(); const w = windowsLabel(); const pm = state.payment.method;
+    const opt = (k, title, sub, body) => `<div class="choice expand ${pm === k ? 'selected' : ''}"><div class="choice-head" data-pay="${k}"><span class="t">${title}</span><span class="s">${sub}</span></div>${pm === k && body ? `<div class="choice-body">${body}</div>` : ''}</div>`;
+    const cardBody = `<label class="field"><span>Card number</span><input class="input" id="cc" inputmode="numeric" autocomplete="cc-number" value="${h(state.payment.cc || '')}" placeholder="4242 4242 4242 4242"></label>
+        <div class="row"><label class="field"><span>Expires</span><input class="input" id="exp" autocomplete="cc-exp" placeholder="MM / YY"></label><label class="field"><span>CVC</span><input class="input" id="cvc" inputmode="numeric" autocomplete="cc-csc" placeholder="123"></label></div>
+        <p class="small" style="margin:0;color:var(--ink-2)">Your card is charged ${money(q.deposit)} now and the balance when the crew finishes.</p>`;
+    const payLabel = pm === 'apple' ? `Pay ${money(q.deposit)} with Apple Pay` : pm === 'google' ? `Pay ${money(q.deposit)} with Google Pay` : `Pay ${money(q.deposit)} deposit`;
+    return {
+      html: `${eyebrow()}<h1>Confirm and pay.</h1>
+        <div class="review">
+          ${[['when', 'When', `${h(fmtDay(state.date))}<br>${h(w)}<span class="sub">Exact window by text within 10 minutes</span>`],
+             ['address', 'Where', `${h(state.address.line1)}${state.address.line2 ? ', ' + h(state.address.line2) : ''}<br>${h(state.address.city)}, ${h(state.address.state)} ${h(state.address.zip)}`],
+             ['vehicles', 'Cars', state.vehicles.map(vehicleName).map(h).join('<br>')],
+             ['services', 'Detail', state.vehicles.map(v => h(pkgOf(pkgFor(v)).name)).join('<br>')],
+             ['addons', 'Add-ons', state.vehicles.flatMap(v => addonsFor(v).map(k => h(M.ADDONS[k].name))).join('<br>') || 'None'],
+            ].map(([step, label, val]) => `<div class="rev"><span class="k">${label}</span><span class="v">${val}</span><button type="button" class="edit" data-edit="${step}">Edit</button></div>`).join('')}
+        </div>
+        ${summaryHtml(q)}
+        ${trustStrip()}
+        <div class="quote"><div class="stars">★★★★★</div><p>“My car looks brand new! Scheduling and communication were so easy.”</p><span>Jennifer B., Google review</span></div>
+        <h2>How would you like to pay?</h2>
+        <div class="choices">
+          ${opt('apple', 'Apple Pay', 'One tap, nothing to type')}
+          ${opt('google', 'Google Pay', 'One tap, nothing to type')}
+          ${opt('card', 'Pay with card', 'Visa, Mastercard, Amex, Discover', cardBody)}
+        </div>
+        <label class="check" style="margin-top:18px"><input type="checkbox" id="c1" ${state.payment.consentReminders ? 'checked' : ''}> Text and email me appointment reminders</label>
+        <label class="check"><input type="checkbox" id="c2" ${state.payment.consentOffers ? 'checked' : ''}> Send me member offers now and then</label>
+        <p class="muted">Cancel or move your appointment up to 72 hours ahead for a full refund of the deposit. Inside 72 hours the deposit goes to the crew who held the time.</p>`,
+      after() {
+        if (state.returnTo) { state.returnTo = ''; save(); }
+        $$('[data-edit]').forEach(b => b.addEventListener('click', () => { state.returnTo = 'pay'; save(); go(b.dataset.edit); }));
+        $$('[data-pay]').forEach(b => b.addEventListener('click', () => { if (state.payment.method === b.dataset.pay) return; state.payment.method = b.dataset.pay; save(); render(); const cc = $('#cc'); if (cc) cc.focus(); }));
+        const cc = $('#cc'); if (cc) cc.addEventListener('input', () => { state.payment.cc = cc.value; save(); footer(); });
+        $('#c1').addEventListener('change', e => { state.payment.consentReminders = e.target.checked; save(); });
+        $('#c2').addEventListener('change', e => { state.payment.consentOffers = e.target.checked; save(); });
+      },
+      valid: () => pm === 'apple' || pm === 'google' || (pm === 'card' && digits(state.payment.cc || '').length >= 12),
+      payLabel,
+      pay() { state.bookingId = 'MINT-' + Math.random().toString(36).slice(2, 7).toUpperCase(); save(); go('done'); },
+    };
+  };
+
+  screens.done = () => {
+    const q = quote(); const w = windowsLabel();
+    return {
+      html: `<div class="done-hero"><div class="mark">🙌</div><h1>You're booked, ${h((state.contact.name || 'friend').split(' ')[0])}!</h1><p class="lede">Clean car, coming right up. Confirmation ${h(state.bookingId)} is on its way to ${h(state.contact.email)}. Your exact arrival window lands by text within 10 minutes.</p></div>
+        <dl class="kv"><dt>When</dt><dd>${h(fmtDay(state.date))}, ${h(w)}</dd><dt>Where</dt><dd>${h(state.address.line1)}, ${h(state.address.city)}</dd><dt>Cars</dt><dd>${state.vehicles.map(vehicleName).map(h).join('<br>')}</dd><dt>Paid today</dt><dd>${money(q.deposit)}</dd><dt>Due after</dt><dd>${money(q.total - q.deposit)}</dd></dl>
+        <h2>Give $20, get $20</h2><p class="small" style="color:var(--ink-2)">Share your code. Friends get $20 off their first clean and you get $20 credit when they book.</p>
+        <span class="code">MINT-${h((state.contact.name || 'YOU').split(' ')[0].toUpperCase().slice(0, 6))}20</span>
+        <div class="btn-row" style="margin-top:22px"><button class="btn secondary" type="button" id="cal">Add to calendar</button><button class="btn ghost" type="button" id="again">Start over</button></div>`,
+      after() {
+        confetti();
+        $('#cal').addEventListener('click', e => { e.target.textContent = 'Added'; });
+        $('#again').addEventListener('click', reset);
+      },
+      valid: () => false, hideFooter: true,
+    };
+  };
+
+
+  // ---------- confetti ----------
+  function confetti() {
+    const c = document.createElement('canvas'); c.className = 'confetti'; document.body.appendChild(c);
+    const ctx = c.getContext('2d'); const dpr = window.devicePixelRatio || 1;
+    const size = () => { c.width = innerWidth * dpr; c.height = innerHeight * dpr; c.style.width = innerWidth + 'px'; c.style.height = innerHeight + 'px'; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); };
+    size();
+    const colors = ['#1fa871', '#5ed3a4', '#ffdc4a', '#ffb347', '#ff6b8a', '#659df2', '#ffffff'];
+    const ps = Array.from({ length: 160 }, () => ({
+      x: innerWidth / 2 + (Math.random() - .5) * 120, y: innerHeight * 0.35,
+      vx: (Math.random() - .5) * 14, vy: -Math.random() * 14 - 6,
+      w: 6 + Math.random() * 6, hgt: 8 + Math.random() * 8, r: Math.random() * Math.PI, vr: (Math.random() - .5) * .3,
+      color: colors[Math.floor(Math.random() * colors.length)], life: 1,
+    }));
+    const start = performance.now();
+    (function frame(t) {
+      const dt = Math.min(32, t - (frame.last || t)) / 16; frame.last = t;
+      ctx.clearRect(0, 0, innerWidth, innerHeight);
+      let alive = 0;
+      ps.forEach(p => {
+        p.vy += .35 * dt; p.vx *= .99; p.x += p.vx * dt; p.y += p.vy * dt; p.r += p.vr * dt;
+        if (t - start > 1800) p.life -= .02 * dt;
+        if (p.life <= 0 || p.y > innerHeight + 20) return; alive++;
+        ctx.save(); ctx.globalAlpha = Math.max(0, p.life); ctx.translate(p.x, p.y); ctx.rotate(p.r); ctx.fillStyle = p.color; ctx.fillRect(-p.w / 2, -p.hgt / 2, p.w, p.hgt); ctx.restore();
+      });
+      if (alive && t - start < 4000) requestAnimationFrame(frame); else c.remove();
+    })(performance.now());
+  }
+
+  // ---------- render ----------
+  let view = null;
+  function footer() {
+    const el = $('#sticky');
+    if (!view || view.hideFooter) { el.innerHTML = ''; return; }
+    const q = quote();
+    const step = current();
+    const showTotal = ['services', 'addons', 'address', 'pay', 'membership', 'who'].includes(step) && q.services > 0;
+    const label = view.payLabel || (state.returnTo && step !== 'pay' ? 'Save and review' : 'Continue');
+    const lead = step === 'pay' ? ['Due today', q.deposit] : ['Total', q.total];
+    el.innerHTML = `<div class="tot">${showTotal ? `${lead[0]}<b>${money(lead[1])}</b>` : ''}</div><button class="btn" id="next" type="button" ${view.valid() ? '' : 'disabled'}>${h(label)}</button>`;
+    $('#next').addEventListener('click', () => { if (view.pay) view.pay(); else next(); });
+  }
+  function render() {
+    const step = current();
+    // Guard: cannot land on later steps without the basics.
+    if (step !== 'where' && !['served', 'edge'].includes(zipStatus(state.zip))) { location.hash = 'where'; return; }
+    if (['services', 'addons', 'another', 'address', 'pay'].includes(step) && !state.vehicles.length) { location.hash = 'vehicles'; return; }
+    view = screens[step]();
+    const app = $('#app'); app.innerHTML = `<div class="fade">${view.html}</div>`;
+    view.after && view.after();
+    $('#progress').style.width = `${step === 'done' ? 100 : (visibleSteps().indexOf(step) / visibleSteps().length) * 100}%`;
+    $('#back').hidden = step === 'where' || step === 'done';
+    $('#demo-before-noon').checked = !!state.demoBeforeNoon;
+    footer();
+  }
+  function reset() { state = fresh(); save(); location.hash = 'where'; render(); }
+
+  $('#back').addEventListener('click', back);
+  $('#demo-reset').addEventListener('click', reset);
+  $('#demo-before-noon').addEventListener('change', e => { state.demoBeforeNoon = e.target.checked; save(); render(); });
+  window.addEventListener('hashchange', render);
+  render();
+})();
