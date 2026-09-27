@@ -493,7 +493,7 @@
     const step = current();
     const showTotal = ['services', 'addons', 'address', 'pay', 'membership', 'who'].includes(step) && q.total > 0;
     const label = view.payLabel || 'Continue';
-    el.innerHTML = `<div class="tot">${showTotal ? `Total<b>${money(q.total)}</b>` : `<span class="muted">Step ${visibleSteps().indexOf(step) + 1} of ${visibleSteps().length}</span>`}</div><button class="btn" id="next" type="button" ${view.valid() ? '' : 'disabled'}>${h(label)}</button>`;
+    el.innerHTML = `<div class="tot">${showTotal ? `Total<b>${money(q.total)}</b>` : ''}</div><button class="btn" id="next" type="button" ${view.valid() ? '' : 'disabled'}>${h(label)}</button>`;
     $('#next').addEventListener('click', () => { if (view.pay) view.pay(); else next(); });
   }
   function render() {
